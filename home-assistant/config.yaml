@@ -1,5 +1,5 @@
 name: sneakytorrents
-version: "0.1.1"
+version: "0.1.2"
 slug: sneakytorrents
 description: qBittorrent with all of its traffic locked to a VPN (Mullvad, WireGuard or OpenVPN)
 url: https://github.com/s41uc0/sneakytorrents
@@ -37,8 +37,12 @@ ports:
 
 options:
   download_dir: /media/torrents
+  extra_paths: []
 schema:
   download_dir: match(^/(media|share)/.+)
+  extra_paths:
+    - path: match(^/(media|share)/.+)
+      category: str?
 
 backup_exclude:
   - "qbittorrent/qBittorrent/cache/*"

@@ -43,6 +43,18 @@ type Env struct {
 	// Supervisor's ingress proxy, whose requests Home Assistant has already authenticated.
 	HA        bool
 	IngressIP string
+	// ExtraPaths are additional folders qBittorrent may save to (Home Assistant
+	// app option), each optionally exposed as a qBittorrent category.
+	ExtraPaths []ExtraPath
+}
+
+type ExtraPath struct {
+	Path     string `json:"path"`
+	Category string `json:"category"`
+}
+
+func inMediaOrShare(dir string) bool {
+	return strings.HasPrefix(dir, "/media/") || strings.HasPrefix(dir, "/share/")
 }
 
 type App struct {
@@ -88,6 +100,11 @@ func run(log *Logger) error {
 	}
 	if env.HA {
 		log.Printf("sneaky", "running as a Home Assistant app; downloads in %s", dataDir)
+	}
+	for _, p := range env.ExtraPaths {
+		if err := prepareWritable(p.Path, env); err != nil {
+			log.Printf("sneaky", "extra path %s: %v", p.Path, err)
+		}
 	}
 
 	store, err := OpenStore(filepath.Join(configDir, "sneaky.json"))
@@ -199,7 +216,8 @@ func loadEnv() (Env, error) {
 			env.IngressIP = ip // for testing outside Home Assistant
 		}
 		var opts struct {
-			DownloadDir string `json:"download_dir"`
+			DownloadDir string      `json:"download_dir"`
+			ExtraPaths  []ExtraPath `json:"extra_paths"`
 		}
 		if data, err := os.ReadFile("/data/options.json"); err == nil {
 			if err := json.Unmarshal(data, &opts); err != nil {
@@ -208,13 +226,41 @@ func loadEnv() (Env, error) {
 		}
 		if opts.DownloadDir != "" {
 			dir := filepath.Clean(opts.DownloadDir)
-			if !strings.HasPrefix(dir, "/media/") && !strings.HasPrefix(dir, "/share/") {
+			if !inMediaOrShare(dir) {
 				return env, fmt.Errorf("download_dir must be inside /media or /share, got %q", opts.DownloadDir)
 			}
 			dataDir = dir
 		}
+		for _, p := range opts.ExtraPaths {
+			dir := filepath.Clean(p.Path)
+			if !inMediaOrShare(dir) {
+				return env, fmt.Errorf("extra_paths: %q must be inside /media or /share", p.Path)
+			}
+			env.ExtraPaths = append(env.ExtraPaths, ExtraPath{Path: dir, Category: strings.TrimSpace(p.Category)})
+		}
 	}
 	return env, nil
+}
+
+// prepareWritable creates dir if needed and makes sure qBittorrent's user can
+// write to it, taking ownership of the folder itself (not its contents) only
+// when it can't already.
+func prepareWritable(dir string, env Env) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	writable := func() bool {
+		cmd := exec.Command("test", "-w", dir)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(env.UID), Gid: uint32(env.GID)}}
+		return cmd.Run() == nil
+	}
+	if writable() {
+		return nil
+	}
+	if err := os.Chown(dir, env.UID, env.GID); err == nil && writable() {
+		return nil
+	}
+	return fmt.Errorf("qBittorrent (uid %d) can't write here; for a network share, allow writes for that user", env.UID)
 }
 
 // resolver sends the manager's own DNS lookups through the tunnel's DNS while

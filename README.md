@@ -58,7 +58,7 @@ sneakytorrents can also run as a Home Assistant app. This is optional: the plain
 2. Install **sneakytorrents** and start it. It shows up as **Torrents** in the sidebar.
 
 Inside Home Assistant your Home Assistant login is used, so there is no separate login. Settings live in the app's own storage, which Home Assistant backs up.
-Downloads go to `/media/torrents` by default; you can change that to another folder under `/media` or `/share` in the app's options.
+Downloads go to `/media/torrents` by default. In the app's options you can pick another folder under `/media` or `/share`, and add extra folders, optionally as qBittorrent categories for Sonarr or Radarr.
 The app's network port is closed by default. See [home-assistant/DOCS.md](home-assistant/DOCS.md) for direct access without Home Assistant.
 
 The app uses the image published by CI. Its `version` in [home-assistant/config.yaml](home-assistant/config.yaml) must match a released image tag, so bump it and push a matching `v<version>` git tag together.

@@ -4,6 +4,12 @@ configuration:
     description: >-
       Where torrents are saved. Must be inside /media or /share. Finished files
       go in downloads/ and unfinished ones in incomplete/.
+  extra_paths:
+    name: Extra folders
+    description: >-
+      More folders qBittorrent may save to, inside /media or /share (network
+      storage added in Home Assistant counts). Give one a category to create a
+      qBittorrent category that saves there, for Sonarr or Radarr.
 network:
   8080/tcp: >-
     Web UI and qBittorrent API for apps like Sonarr or mobile apps, without

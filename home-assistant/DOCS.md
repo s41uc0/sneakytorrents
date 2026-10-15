@@ -20,6 +20,23 @@ It must be inside `/media` or `/share`, so downloads show up in Home Assistant's
 Finished files go in `downloads/` and unfinished ones in `incomplete/`.
 Downloads are not part of the app's backups.
 
+**Extra folders** (`extra_paths`): more folders qBittorrent may save to, each inside `/media` or `/share`.
+Network storage you've added in Home Assistant (Settings → System → Storage) shows up there too.
+The app creates each folder and makes sure qBittorrent can write to it.
+Give a folder a `category` to also create a qBittorrent category that saves there, which Sonarr and Radarr can use:
+
+```yaml
+extra_paths:
+  - path: /media/movies
+    category: movies
+  - path: /media/tv
+    category: tv
+  - path: /share/nas/other
+```
+
+Without a category, the folder is just available as a save location when adding a torrent.
+If a network share doesn't allow qBittorrent to write (it runs as user 1000), the app's log says so.
+
 ## How the VPN is enforced
 
 A firewall rule inside the app lets qBittorrent send traffic only through the VPN tunnel.

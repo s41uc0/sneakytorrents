@@ -133,6 +133,7 @@ func (q *QBit) Supervise(ctx context.Context) {
 			q.running.Store(true)
 			done := make(chan error, 1)
 			go func() { done <- cmd.Wait() }()
+			go q.applyCategories(ctx)
 			select {
 			case err := <-done:
 				q.running.Store(false)
@@ -193,8 +194,11 @@ func (q *QBit) SetPreferences(ctx context.Context, prefs map[string]any) error {
 	if err != nil {
 		return err
 	}
-	form := url.Values{"json": {string(b)}}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, q.apiURL("/api/v2/app/setPreferences"), strings.NewReader(form.Encode()))
+	return q.post(ctx, "/api/v2/app/setPreferences", url.Values{"json": {string(b)}})
+}
+
+func (q *QBit) post(ctx context.Context, path string, form url.Values) error {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, q.apiURL(path), strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := q.client.Do(req)
 	if err != nil {
@@ -203,9 +207,36 @@ func (q *QBit) SetPreferences(ctx context.Context, prefs map[string]any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("qBittorrent refused settings: %s %s", resp.Status, strings.TrimSpace(string(body)))
+		return fmt.Errorf("qBittorrent refused %s: %s %s", path, resp.Status, strings.TrimSpace(string(body)))
 	}
 	return nil
+}
+
+// applyCategories creates (or points at the right folder) a qBittorrent
+// category for each extra path that names one.
+func (q *QBit) applyCategories(ctx context.Context) {
+	var paths []ExtraPath
+	for _, p := range q.a.env.ExtraPaths {
+		if p.Category != "" {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) == 0 || q.WaitReady(ctx) != nil {
+		return
+	}
+	for _, p := range paths {
+		form := url.Values{"category": {p.Category}, "savePath": {p.Path}}
+		// createCategory fails when the category exists; then update its folder.
+		err := q.post(ctx, "/api/v2/torrents/createCategory", form)
+		if err != nil {
+			err = q.post(ctx, "/api/v2/torrents/editCategory", form)
+		}
+		if err != nil {
+			q.a.log.Printf("qbittorrent", "category %q: %v", p.Category, err)
+		} else {
+			q.a.log.Printf("qbittorrent", "category %q saves to %s", p.Category, p.Path)
+		}
+	}
 }
 
 func clientIP(r *http.Request) string {
