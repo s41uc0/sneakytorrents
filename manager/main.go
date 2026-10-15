@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -21,17 +22,27 @@ import (
 )
 
 const (
-	configDir  = "/config"
-	dataDir    = "/data"
 	runDir     = "/run/sneaky"
 	hookSocket = runDir + "/hook.sock"
 	vpnIface   = "vpn0"
 	qbtWebPort = 8081
 )
 
+// Settings and qBittorrent's profile live in configDir; downloads in dataDir.
+// Both can be moved with CONFIG_DIR / DATA_DIR, and as a Home Assistant app
+// dataDir comes from the app's download_dir option.
+var (
+	configDir = "/config"
+	dataDir   = "/data"
+)
+
 type Env struct {
 	UID, GID int
 	WebPort  int
+	// HA is set when running as a Home Assistant app; IngressIP is the
+	// Supervisor's ingress proxy, whose requests Home Assistant has already authenticated.
+	HA        bool
+	IngressIP string
 }
 
 type App struct {
@@ -74,6 +85,9 @@ func run(log *Logger) error {
 		if err := os.Chown(d, env.UID, env.GID); err != nil {
 			return err
 		}
+	}
+	if env.HA {
+		log.Printf("sneaky", "running as a Home Assistant app; downloads in %s", dataDir)
 	}
 
 	store, err := OpenStore(filepath.Join(configDir, "sneaky.json"))
@@ -170,6 +184,35 @@ func loadEnv() (Env, error) {
 	}
 	if env.WebPort == 0 || env.WebPort > 65535 || env.WebPort == qbtWebPort {
 		return env, fmt.Errorf("WEBUI_PORT must be 1-65535 and not %d", qbtWebPort)
+	}
+	if d := os.Getenv("CONFIG_DIR"); d != "" {
+		configDir = d
+	}
+	if d := os.Getenv("DATA_DIR"); d != "" {
+		dataDir = d
+	}
+
+	if os.Getenv("SUPERVISOR_TOKEN") != "" {
+		env.HA = true
+		env.IngressIP = "172.30.32.2"
+		if ip := os.Getenv("SNEAKY_INGRESS_IP"); ip != "" {
+			env.IngressIP = ip // for testing outside Home Assistant
+		}
+		var opts struct {
+			DownloadDir string `json:"download_dir"`
+		}
+		if data, err := os.ReadFile("/data/options.json"); err == nil {
+			if err := json.Unmarshal(data, &opts); err != nil {
+				return env, fmt.Errorf("reading app options: %w", err)
+			}
+		}
+		if opts.DownloadDir != "" {
+			dir := filepath.Clean(opts.DownloadDir)
+			if !strings.HasPrefix(dir, "/media/") && !strings.HasPrefix(dir, "/share/") {
+				return env, fmt.Errorf("download_dir must be inside /media or /share, got %q", opts.DownloadDir)
+			}
+			dataDir = dir
+		}
 	}
 	return env, nil
 }

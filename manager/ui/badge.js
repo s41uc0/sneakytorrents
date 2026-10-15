@@ -1,7 +1,9 @@
 // Injected into qBittorrent's web UI: a small VPN status pill linking to /vpn/.
 (() => {
+  // Resolve against this script's own URL so it works under Home Assistant's ingress prefix too.
+  const base = new URL('./', document.currentScript.src).href; // …/vpn/
   const el = document.createElement('a');
-  el.href = '/vpn/';
+  el.href = base;
   el.title = 'VPN settings';
   Object.assign(el.style, {
     position: 'fixed', right: '12px', bottom: '34px', zIndex: '100000', display: 'none',
@@ -12,7 +14,7 @@
 
   async function tick() {
     try {
-      const r = await fetch('/vpn/api/status', { credentials: 'same-origin' });
+      const r = await fetch(base + 'api/status', { credentials: 'same-origin' });
       if (!r.ok) { el.style.display = 'none'; return; }
       const v = (await r.json()).vpn;
       const where = [v.exit_city, v.exit_country].filter(Boolean).join(', ');

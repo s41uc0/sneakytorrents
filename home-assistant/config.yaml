@@ -1,0 +1,45 @@
+name: sneakytorrents
+version: "0.1.0"
+slug: sneakytorrents
+description: qBittorrent with all of its traffic locked to a VPN (Mullvad, WireGuard or OpenVPN)
+url: https://github.com/s41uc0/sneakytorrents
+arch:
+  - aarch64
+  - amd64
+image: ghcr.io/s41uc0/sneakytorrents
+# The image runs tini itself.
+init: false
+startup: application
+boot: auto
+
+ingress: true
+ingress_port: 8080
+panel_icon: mdi:shield-lock-outline
+panel_title: Torrents
+
+# The tunnel and the kill-switch firewall are created inside the app's container.
+privileged:
+  - NET_ADMIN
+devices:
+  - /dev/net/tun
+
+environment:
+  CONFIG_DIR: /data
+map:
+  - type: media
+    read_only: false
+  - type: share
+    read_only: false
+
+# Optional direct access outside Home Assistant; closed by default.
+ports:
+  8080/tcp: null
+
+options:
+  download_dir: /media/torrents
+schema:
+  download_dir: match(^/(media|share)/.+)
+
+backup_exclude:
+  - "qbittorrent/qBittorrent/cache/*"
+  - "qbittorrent/qBittorrent/data/logs/*"

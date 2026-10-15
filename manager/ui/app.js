@@ -1,6 +1,8 @@
 'use strict';
 
 const $app = document.getElementById('app');
+// URL prefix in front of /vpn/: empty normally, /api/hassio_ingress/<token> inside Home Assistant.
+const BASE = location.pathname.replace(/\/vpn\/.*$/, '');
 
 // --- tiny DOM + API helpers ---
 
@@ -49,7 +51,7 @@ async function api(path, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   };
-  const r = await fetch('/vpn/api/' + path, opts);
+  const r = await fetch(BASE + '/vpn/api/' + path, opts);
   const data = await r.json().catch(() => ({}));
   if (r.status === 401) {
     if (session.authed) { session.authed = false; render(); }
@@ -122,7 +124,8 @@ function render() {
   timers.forEach(clearInterval);
   timers = [];
   let view;
-  if (!session.account_set) view = wizard(1);
+  if (session.ha && !session.authed && !session.account_set) view = haClosedView();
+  else if (!session.account_set && !session.ingress) view = wizard(1);
   else if (!session.authed) view = loginView();
   else if (!session.onboarded || wizardStep) view = wizard(wizardStep || 2);
   else view = dashboard();
@@ -131,13 +134,24 @@ function render() {
 
 // --- onboarding ---
 
+// Shown on the app's direct port in Home Assistant before a login exists.
+function haClosedView() {
+  return h('main', { class: 'narrow' }, brand(), h('section', { class: 'card', style: 'margin-top:20px' },
+    h('h2', {}, 'Open sneakytorrents from Home Assistant'),
+    h('p', { class: 'muted' }, 'This address needs its own login. Open sneakytorrents from the Home Assistant sidebar and create one under Direct access login.')));
+}
+
 function wizard(step) {
-  const steps = ['Login', 'VPN', 'Connect'];
+  // Inside Home Assistant, Home Assistant's login is used, so there is no login step.
+  const steps = (session.ingress ? ['VPN', 'Connect'] : ['Login', 'VPN', 'Connect']);
+  const offset = session.ingress ? 1 : 0;
   const body = step === 1 ? accountStep() : step === 2 ? vpnStep() : connectStep();
   return h('main', { class: 'narrow' },
     brand(),
-    h('ol', { class: 'steps' }, steps.map((s, i) =>
-      h('li', { class: i + 1 < step ? 'done' : i + 1 === step ? 'current' : '' }, h('span', { class: 'n' }, i + 1), s))),
+    h('ol', { class: 'steps' }, steps.map((s, i) => {
+      const n = i + 1 + offset;
+      return h('li', { class: n < step ? 'done' : n === step ? 'current' : '' }, h('span', { class: 'n' }, i + 1), s);
+    })),
     body);
 }
 
@@ -216,7 +230,7 @@ function connectStep() {
         h('dl', { class: 'kv', style: 'max-width:340px;margin:16px auto 0;text-align:left' },
           row('Exit IP', v.public_ip), where && row('Exit location', where)),
         h('div', { class: 'actions' },
-          h('a', { class: 'button primary', href: '/' }, 'Open qBittorrent'),
+          h('a', { class: 'button primary', href: BASE + '/' }, 'Open qBittorrent'),
           h('button', { onclick: () => { wizardStep = null; render(); } }, 'VPN dashboard')));
     } else if (v.error) {
       card.replaceChildren(
@@ -477,11 +491,11 @@ function dashboard() {
 
   return h('main', {},
     h('div', { class: 'topbar' }, brand(),
-      h('nav', {}, h('a', { class: 'button primary', href: '/' }, 'Open qBittorrent'), logout)),
+      h('nav', {}, h('a', { class: 'button primary', href: BASE + '/' }, 'Open qBittorrent'), !session.ingress && logout)),
     h('div', { class: 'grid' }, statusCard, killCard),
     providerEditor({ title: 'VPN settings', submitLabel: 'Save and reconnect', onSaved: () => {} }),
     portCard(),
-    accountCard(),
+    session.ingress ? haLoginCard() : accountCard(),
     logsCard());
 }
 
@@ -508,6 +522,43 @@ function accountCard() {
   h('h2', {}, 'Account'),
   h('p', { class: 'muted small' }, `Logged in as ${session.username || ''}.`),
   h('div', { class: 'grid3' }, field('Current password', cur), field('New password', next), field('Confirm new password', next2)),
+  err.el,
+  done,
+  h('div', { class: 'actions' }, btn));
+}
+
+// Inside Home Assistant: an optional login for the app's direct network port.
+function haLoginCard() {
+  const user = h('input', { value: session.username || 'admin', autocomplete: 'username', required: true, disabled: session.account_set });
+  const next = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8, required: true });
+  const next2 = h('input', { type: 'password', autocomplete: 'new-password', required: true });
+  const err = errLine();
+  const done = h('p', { class: 'muted small', role: 'status' });
+  const btn = h('button', { type: 'submit' }, session.account_set ? 'Set new password' : 'Create login');
+  return h('form', {
+    class: 'card',
+    onsubmit: async (e) => {
+      e.preventDefault();
+      done.textContent = '';
+      if (next.value !== next2.value) return err.show("The passwords don't match");
+      await busy(btn, async () => {
+        if (session.account_set) {
+          await api('password', { current: '', new: next.value });
+          done.textContent = 'Password changed. Devices using the direct address have been logged out.';
+        } else {
+          await api('setup/account', { username: user.value, password: next.value });
+          await refreshSession();
+          done.textContent = 'Login created.';
+        }
+        next.value = next2.value = '';
+      }, err);
+    },
+  },
+  h('h2', {}, 'Direct access login'),
+  h('p', { class: 'muted small' },
+    "Only needed if you turn on this app's network port in Home Assistant, to reach it without Home Assistant. Inside Home Assistant your Home Assistant login is used.",
+    session.account_set ? ` Current login: ${session.username}.` : ' No login has been created, so the direct port stays closed.'),
+  h('div', { class: 'grid3' }, field('Username', user), field('Password', next), field('Confirm password', next2)),
   err.el,
   done,
   h('div', { class: 'actions' }, btn));

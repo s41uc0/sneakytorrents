@@ -46,7 +46,7 @@ func (a *App) routes() http.Handler {
 		http.ServeFileFS(w, r, static, "badge.js")
 	})
 	mux.HandleFunc("/vpn", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/vpn/", http.StatusFound)
+		http.Redirect(w, r, a.basePath(r)+"/vpn/", http.StatusFound)
 	})
 	mux.HandleFunc("GET /vpn/healthz", a.handleHealth)
 
@@ -71,13 +71,44 @@ func (a *App) routes() http.Handler {
 	return mux
 }
 
-// authed: before an account exists there is nothing to protect (and no way to
-// log in); afterwards a session cookie is needed.
+// authed: Home Assistant ingress requests are already authenticated by Home
+// Assistant. Otherwise, before an account exists there is nothing to protect
+// (and no way to log in), except as a Home Assistant app, where the direct port
+// stays closed until a login is created from inside Home Assistant.
 func (a *App) authed(r *http.Request) bool {
-	if !a.store.Get().HasAccount() {
+	if a.isIngress(r) {
 		return true
 	}
+	if !a.store.Get().HasAccount() {
+		return !a.env.HA
+	}
 	return a.sessionValid(r)
+}
+
+// isIngress reports whether r came through Home Assistant's ingress proxy,
+// which only forwards requests from logged-in Home Assistant users.
+func (a *App) isIngress(r *http.Request) bool {
+	return a.env.HA && clientIP(r) == a.env.IngressIP
+}
+
+// basePath is the URL prefix the browser sees: ingress serves the app under
+// /api/hassio_ingress/<token>.
+func (a *App) basePath(r *http.Request) string {
+	if p := r.Header.Get("X-Ingress-Path"); a.isIngress(r) && strings.HasPrefix(p, "/api/hassio_ingress/") {
+		return strings.TrimRight(p, "/")
+	}
+	return ""
+}
+
+// sameOrigin refuses cross-site state-changing requests. Ingress requests are
+// exempt: Home Assistant authenticates them and rewrites Host on the way in.
+func (a *App) sameOrigin(r *http.Request) bool {
+	o := r.Header.Get("Origin")
+	if o == "" || a.isIngress(r) {
+		return true
+	}
+	u, err := url.Parse(o)
+	return err == nil && u.Host == r.Host
 }
 
 func (a *App) api(needAuth bool, h func(*http.Request) (any, error)) http.HandlerFunc {
@@ -93,11 +124,9 @@ func (a *App) apiW(needAuth bool, h func(http.ResponseWriter, *http.Request) (an
 				writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "expected JSON"})
 				return
 			}
-			if o := r.Header.Get("Origin"); o != "" {
-				if u, err := url.Parse(o); err != nil || u.Host != r.Host {
-					writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-origin request refused"})
-					return
-				}
+			if !a.sameOrigin(r) {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-origin request refused"})
+				return
 			}
 		}
 		if needAuth && !a.authed(r) {
@@ -148,6 +177,8 @@ func (a *App) handleSession(r *http.Request) (any, error) {
 		"account_set": s.HasAccount(),
 		"onboarded":   s.Onboarded,
 		"authed":      authed,
+		"ha":          a.env.HA,
+		"ingress":     a.isIngress(r),
 	}
 	if authed {
 		res["username"] = s.Username
@@ -161,6 +192,9 @@ type credentials struct {
 }
 
 func (a *App) handleSetupAccount(w http.ResponseWriter, r *http.Request) (any, error) {
+	if a.env.HA && !a.isIngress(r) {
+		return nil, &httpError{http.StatusForbidden, "create the login from sneakytorrents in the Home Assistant sidebar"}
+	}
 	var req credentials
 	if err := decode(r, &req); err != nil {
 		return nil, err
@@ -233,7 +267,8 @@ func (a *App) handlePassword(w http.ResponseWriter, r *http.Request) (any, error
 	if len(req.New) < 8 {
 		return nil, badRequest("the new password needs at least 8 characters")
 	}
-	if !checkPassword(a.store.Get().PasswordHash, req.Current) {
+	// Through Home Assistant you're already authenticated, so a forgotten password can be reset there.
+	if !a.isIngress(r) && !checkPassword(a.store.Get().PasswordHash, req.Current) {
 		return nil, badRequest("the current password is wrong")
 	}
 	hash, err := hashPassword(req.New)
@@ -547,11 +582,12 @@ var lockedPrefs = []string{
 // sees every request as coming from localhost, which it doesn't ask to log in.
 func (a *App) qbtProxy() http.Handler {
 	target := &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", qbtWebPort)}
-	badge := []byte(`<script src="/vpn/badge.js" defer></script></body>`)
+	// Relative, so it also resolves under Home Assistant's ingress prefix.
+	badge := []byte(`<script src="vpn/badge.js" defer></script></body>`)
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
-			pr.Out.Host = pr.In.Host // qBittorrent's CSRF check compares Origin with Host
+			pr.Out.Host = pr.In.Host
 			if isQbtIndex(pr.In) {
 				pr.Out.Header.Del("Accept-Encoding")
 			}
@@ -579,17 +615,22 @@ func (a *App) qbtProxy() http.Handler {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Retry-After", "3")
 			w.WriteHeader(http.StatusBadGateway)
-			io.WriteString(w, `<!doctype html><meta http-equiv="refresh" content="3"><title>Starting</title><body style="font-family:system-ui;padding:2rem">qBittorrent is starting… this page will refresh. <a href="/vpn/">VPN settings</a></body>`)
+			io.WriteString(w, `<!doctype html><meta http-equiv="refresh" content="3"><title>Starting</title><body style="font-family:system-ui;padding:2rem">qBittorrent is starting… this page will refresh.</body>`)
 		},
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s := a.store.Get()
-		if !s.HasAccount() || !s.Onboarded || !a.sessionValid(r) {
+		allowed := s.Onboarded && (a.isIngress(r) || (s.HasAccount() && a.sessionValid(r)))
+		if !allowed {
 			if strings.HasPrefix(r.URL.Path, "/api/") {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 			} else {
-				http.Redirect(w, r, "/vpn/", http.StatusFound)
+				http.Redirect(w, r, a.basePath(r)+"/vpn/", http.StatusFound)
 			}
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && !a.sameOrigin(r) {
+			http.Error(w, "cross-origin request refused", http.StatusForbidden)
 			return
 		}
 		switch r.URL.Path {

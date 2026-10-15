@@ -2,3 +2,6 @@ config
 data
 *.md
 flake.*
+home-assistant
+repository.yaml
+.github

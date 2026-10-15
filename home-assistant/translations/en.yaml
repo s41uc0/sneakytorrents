@@ -1,0 +1,10 @@
+configuration:
+  download_dir:
+    name: Download folder
+    description: >-
+      Where torrents are saved. Must be inside /media or /share. Finished files
+      go in downloads/ and unfinished ones in incomplete/.
+network:
+  8080/tcp: >-
+    Web UI without going through Home Assistant. Stays closed until you create
+    a login under "Direct access login" in the app.

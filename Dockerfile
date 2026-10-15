@@ -5,7 +5,18 @@ WORKDIR /src
 COPY manager/ ./
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/sneaky .
 
-FROM alpine:3.22
+# Home Assistant reads these labels from the image; its arch names differ from Docker's.
+FROM alpine:3.22 AS runtime-amd64
+LABEL io.hass.arch="amd64"
+FROM alpine:3.22 AS runtime-arm64
+LABEL io.hass.arch="aarch64"
+
+FROM runtime-${TARGETARCH}
+ARG BUILD_VERSION=dev
+LABEL io.hass.type="addon" \
+      io.hass.version="${BUILD_VERSION}" \
+      io.hass.name="sneakytorrents" \
+      io.hass.description="qBittorrent with all of its traffic locked to a VPN"
 RUN apk add --no-cache \
       ca-certificates \
       iproute2 \
@@ -23,7 +34,6 @@ ENV PUID=1000 \
     WEBUI_PORT=8080 \
     TZ=UTC
 
-VOLUME ["/config", "/data"]
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \

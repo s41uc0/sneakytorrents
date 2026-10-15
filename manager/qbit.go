@@ -59,17 +59,20 @@ func (q *QBit) seed() error {
 	}
 	c := parseINI(string(data))
 	if fresh {
-		// Throwaway password; the real one is chosen during onboarding.
+		// Throwaway password: nobody logs in to qBittorrent itself.
 		hash, err := pbkdf2Hash(randomToken(24))
 		if err != nil {
 			return err
 		}
 		c.set("LegalNotice", "Accepted", "true")
-		c.set("BitTorrent", `Session\DefaultSavePath`, dataDir+"/downloads")
-		c.set("BitTorrent", `Session\TempPath`, dataDir+"/incomplete")
 		c.set("BitTorrent", `Session\TempPathEnabled`, "true")
 		c.set("Preferences", `WebUI\Username`, "admin")
 		c.set("Preferences", `WebUI\Password_PBKDF2`, hash)
+	}
+	// As a Home Assistant app the download folder is an app option, so follow it.
+	if fresh || q.a.env.HA {
+		c.set("BitTorrent", `Session\DefaultSavePath`, dataDir+"/downloads")
+		c.set("BitTorrent", `Session\TempPath`, dataDir+"/incomplete")
 	}
 	c.set("BitTorrent", `Session\Interface`, vpnIface)
 	c.set("BitTorrent", `Session\InterfaceName`, vpnIface)
@@ -79,6 +82,8 @@ func (q *QBit) seed() error {
 	c.set("Preferences", `WebUI\Port`, strconv.Itoa(qbtWebPort))
 	c.set("Preferences", `WebUI\LocalHostAuth`, "false")
 	c.set("Preferences", `WebUI\HostHeaderValidation`, "false")
+	// The proxy checks Origin itself; qBittorrent's check can't see through Home Assistant ingress.
+	c.set("Preferences", `WebUI\CSRFProtection`, "false")
 	// Ignore X-Forwarded-For entirely: every request qBittorrent sees is from the manager.
 	c.set("Preferences", `WebUI\ReverseProxySupportEnabled`, "false")
 	c.set("Preferences", `WebUI\AuthSubnetWhitelistEnabled`, "false")
