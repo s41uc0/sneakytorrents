@@ -122,8 +122,9 @@ func DetectCaps() Caps {
 // (setting a mark needs CAP_NET_ADMIN, which qBittorrent doesn't have).
 const wgFwMark = 51820
 
-// The kill switch. Every socket not owned by root (i.e. qBittorrent) may only
-// send through loopback or the tunnel, and not to Docker's embedded DNS (which
+// The kill switch. Every socket with a non-root owner or group (i.e.
+// qBittorrent, which runs as PUID, or as root with group PGID) may only send
+// through loopback or the tunnel, and not to Docker's embedded DNS (which
 // would resolve outside the tunnel). Root (this manager, wireguard-go, openvpn)
 // needs the Docker network to reach the VPN server itself.
 const nftRuleset = `table inet sneaky
@@ -137,6 +138,7 @@ table inet sneaky {
 	chain output {
 		type filter hook output priority filter; policy accept;
 		meta skuid != 0 jump torrent_out
+		meta skgid != 0 jump torrent_out
 	}
 	chain torrent_out {
 		oifname "lo" ip daddr 127.0.0.11 counter name "leak_blocked" reject

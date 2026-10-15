@@ -122,7 +122,10 @@ func run(log *Logger) error {
 	if err := SetForwardedPort(store.Get().ForwardedPort); err != nil {
 		return fmt.Errorf("kill switch: %w", err)
 	}
-	log.Printf("sneaky", "kill switch active: qBittorrent (uid %d) can only use %s", env.UID, vpnIface)
+	log.Printf("sneaky", "kill switch active: qBittorrent (uid %d, gid %d) can only use %s", env.UID, env.GID, vpnIface)
+	if env.UID == 0 {
+		log.Printf("sneaky", "qBittorrent runs as root with only file-access capabilities, so it can write to root-owned network shares")
+	}
 
 	a := &App{env: env, log: log, store: store, host: host, caps: DetectCaps()}
 	switch {
@@ -196,8 +199,9 @@ func loadEnv() (Env, error) {
 		*v.dst = n
 	}
 	// The kill switch tells qBittorrent apart from the tunnel by uid, so it must not run as root.
-	if env.UID == 0 {
-		return env, errors.New("PUID=0 is not supported: qBittorrent must run as a non-root user for the kill switch to work")
+	// The kill switch recognises qBittorrent by a non-root uid or gid.
+	if env.UID == 0 && env.GID == 0 {
+		return env, errors.New("PUID=0 needs a non-zero PGID: the kill switch recognises qBittorrent by its group")
 	}
 	if env.WebPort == 0 || env.WebPort > 65535 || env.WebPort == qbtWebPort {
 		return env, fmt.Errorf("WEBUI_PORT must be 1-65535 and not %d", qbtWebPort)
@@ -249,18 +253,34 @@ func prepareWritable(dir string, env Env) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	writable := func() bool {
-		cmd := exec.Command("test", "-w", dir)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(env.UID), Gid: uint32(env.GID)}}
-		return cmd.Run() == nil
-	}
+	writable := func() bool { return env.qbtCmd("test", "-w", dir).Run() == nil }
 	if writable() {
 		return nil
 	}
 	if err := os.Chown(dir, env.UID, env.GID); err == nil && writable() {
 		return nil
 	}
-	return fmt.Errorf("qBittorrent (uid %d) can't write here; for a network share, allow writes for that user", env.UID)
+	if env.UID != 0 {
+		return fmt.Errorf("qBittorrent (uid %d) can't write here; for a network share, set PUID=0", env.UID)
+	}
+	return errors.New("qBittorrent can't write here; check that the share isn't mounted read-only")
+}
+
+// qbtCmd prepares a command to run with qBittorrent's identity: the PUID/PGID
+// user, or with PUID=0 root keeping only file-access capabilities. Root is
+// needed to write to network shares that are mounted root-owned (as Home
+// Assistant does), and dac_override/fowner to keep writing files other users
+// created; without the network capabilities it can't touch the firewall or routing.
+func (e Env) qbtCmd(name string, args ...string) *exec.Cmd {
+	if e.UID == 0 {
+		return exec.Command("setpriv", append([]string{
+			"--reuid=0", "--regid=" + strconv.Itoa(e.GID), "--clear-groups",
+			"--inh-caps=-all", "--bounding-set=-all,+dac_override,+fowner", "--no-new-privs",
+			"--", name}, args...)...)
+	}
+	cmd := exec.Command(name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(e.UID), Gid: uint32(e.GID)}}
+	return cmd
 }
 
 // resolver sends the manager's own DNS lookups through the tunnel's DNS while

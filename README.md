@@ -41,7 +41,7 @@ No other privileges are needed.
 
 | Variable | Default | |
 | --- | --- | --- |
-| `PUID` / `PGID` | `1000` | Owner of downloads and config. Must not be 0. |
+| `PUID` / `PGID` | `1000` | Owner of downloads and config. `PUID=0` runs qBittorrent as root with only file-access capabilities (no network ones), for network shares mounted root-owned; `PGID` must then not be 0. |
 | `WEBUI_PORT` | `8080` | Port the web UI listens on inside the container. |
 | `TZ` | `UTC` | |
 

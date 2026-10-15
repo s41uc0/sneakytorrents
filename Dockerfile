@@ -23,6 +23,7 @@ RUN apk add --no-cache \
       nftables \
       openvpn \
       qbittorrent-nox \
+      setpriv \
       tini \
       tzdata \
       wireguard-go \

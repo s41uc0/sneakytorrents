@@ -35,11 +35,13 @@ extra_paths:
 ```
 
 Without a category, the folder is just available as a save location when adding a torrent.
-If a network share doesn't allow qBittorrent to write (it runs as user 1000), the app's log says so.
+Network shares work as long as the account Home Assistant uses to connect may write there (on the NAS side), and the share isn't added as read-only in Home Assistant.
+If qBittorrent still can't write to a folder, the app's log says so at startup.
 
 ## How the VPN is enforced
 
 A firewall rule inside the app lets qBittorrent send traffic only through the VPN tunnel.
+qBittorrent runs as root, because Home Assistant mounts network shares so that only root can write to them, but with only file-access capabilities: it can't change the firewall or routing.
 If the tunnel drops or you disconnect, qBittorrent's traffic is blocked, never sent over your own connection.
 DNS lookups go through the tunnel too.
 The dashboard shows the IP your traffic exits from, and how many packets the kill switch has blocked.

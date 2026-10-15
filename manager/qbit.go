@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -114,7 +113,7 @@ func (q *QBit) Supervise(ctx context.Context) {
 			q.a.log.Printf("qbittorrent", "could not prepare config: %v", err)
 		}
 		started := time.Now()
-		cmd := exec.Command("qbittorrent-nox", "--profile="+q.profile, "--confirm-legal-notice")
+		cmd := q.a.env.qbtCmd("qbittorrent-nox", "--profile="+q.profile, "--confirm-legal-notice")
 		cmd.Env = []string{
 			"HOME=" + q.profile,
 			"LANG=C.UTF-8",
@@ -122,9 +121,6 @@ func (q *QBit) Supervise(ctx context.Context) {
 			"TZ=" + os.Getenv("TZ"),
 		}
 		cmd.Dir = q.profile
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Credential: &syscall.Credential{Uid: uint32(q.a.env.UID), Gid: uint32(q.a.env.GID)},
-		}
 		w := q.a.log.Writer("qbittorrent")
 		cmd.Stdout, cmd.Stderr = w, w
 		if err := cmd.Start(); err != nil {
