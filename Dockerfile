@@ -1,7 +1,9 @@
-FROM golang:1.24-alpine AS build
+# The manager is cross-compiled on the build machine; only the final stage runs per architecture.
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY manager/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sneaky .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/sneaky .
 
 FROM alpine:3.22
 RUN apk add --no-cache \

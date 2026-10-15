@@ -33,6 +33,9 @@ docker run -d --name sneakytorrents \
   sneakytorrents:latest
 ```
 
+Pushes to `main` and `v*` tags publish a multi-arch image (amd64 and arm64) to `ghcr.io/<owner>/<repo>`, via `.github/workflows/container.yml`.
+To use it, replace `build: .` in the compose file with that image.
+
 `NET_ADMIN` and `/dev/net/tun` are required: the container builds its own tunnel and firewall.
 No other privileges are needed.
 
