@@ -1,0 +1,20 @@
+services:
+  sneakytorrents:
+    build: .
+    image: sneakytorrents:latest
+    container_name: sneakytorrents
+    # Needed to create the tunnel and the kill-switch firewall inside the container.
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "8080:8080"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Amsterdam
+    volumes:
+      - ./config:/config
+      - ./data:/data
+    restart: unless-stopped
