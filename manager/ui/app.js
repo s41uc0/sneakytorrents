@@ -556,7 +556,7 @@ function haLoginCard() {
   },
   h('h2', {}, 'Direct access login'),
   h('p', { class: 'muted small' },
-    "Only needed if you turn on this app's network port in Home Assistant, to reach it without Home Assistant. Inside Home Assistant your Home Assistant login is used.",
+    "For other apps (Sonarr, Radarr, mobile apps, Home Assistant's qBittorrent integration) and for using the app's network port without Home Assistant. Inside Home Assistant your Home Assistant login is used.",
     session.account_set ? ` Current login: ${session.username}.` : ' No login has been created, so the direct port stays closed.'),
   h('div', { class: 'grid3' }, field('Username', user), field('Password', next), field('Confirm password', next2)),
   err.el,

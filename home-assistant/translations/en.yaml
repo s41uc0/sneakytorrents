@@ -6,5 +6,6 @@ configuration:
       go in downloads/ and unfinished ones in incomplete/.
 network:
   8080/tcp: >-
-    Web UI without going through Home Assistant. Stays closed until you create
-    a login under "Direct access login" in the app.
+    Web UI and qBittorrent API for apps like Sonarr or mobile apps, without
+    going through Home Assistant. Stays closed until you create a login under
+    "Direct access login" in the app.

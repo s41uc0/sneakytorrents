@@ -90,6 +90,8 @@ The app uses the image published by CI. Its `version` in [home-assistant/config.
 - **OpenVPN** configs must have certificates and keys inline (`<ca>…</ca>` and so on), not as separate files. Only `tun` configs are supported.
 - **Mullvad is WireGuard-only.** Mullvad has shut down its OpenVPN servers, so there is no Mullvad-over-OpenVPN option.
 - **Password.** Change it on the dashboard; doing so logs out every other device.
+- **Other apps** (Sonarr, Radarr, nzb360, Home Assistant's qBittorrent integration and so on) connect as they would to qBittorrent.
+  Point them at `http://<host>:8080` with the sneakytorrents username and password.
 - **Onboarding is open to anyone** who can reach the port until the login is created, so set it up right after first start.
   Set the port mapping to `127.0.0.1:8080:8080` if the UI shouldn't be reachable from your LAN.
 - `docker logs sneakytorrents` shows everything: the manager, qBittorrent and the VPN client. The same log is on the dashboard.

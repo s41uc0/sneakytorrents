@@ -1,5 +1,5 @@
 name: sneakytorrents
-version: "0.1.0"
+version: "0.1.1"
 slug: sneakytorrents
 description: qBittorrent with all of its traffic locked to a VPN (Mullvad, WireGuard or OpenVPN)
 url: https://github.com/s41uc0/sneakytorrents

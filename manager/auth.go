@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,8 +21,11 @@ import (
 
 const (
 	sessionCookie = "sneaky_session"
-	sessionTTL    = 30 * 24 * time.Hour
-	pbkdf2Iter    = 210000
+	// qbtCookie carries the same session for apps that log in through
+	// qBittorrent's API (Sonarr, Radarr, mobile apps); some only resend a cookie named SID.
+	qbtCookie  = "SID"
+	sessionTTL = 30 * 24 * time.Hour
+	pbkdf2Iter = 210000
 )
 
 func hashPassword(password string) (string, error) {
@@ -66,6 +70,9 @@ func sessionMAC(secret, payload string) string {
 func (a *App) sessionValid(r *http.Request) bool {
 	s := a.store.Get()
 	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		c, err = r.Cookie(qbtCookie)
+	}
 	if err != nil || s.SessionSecret == "" {
 		return false
 	}
@@ -86,7 +93,49 @@ func (a *App) setSessionCookie(w http.ResponseWriter, secret string) {
 }
 
 func clearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	for _, name := range []string{sessionCookie, qbtCookie} {
+		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	}
+}
+
+// qbtLogin answers qBittorrent's /api/v2/auth/login the way qBittorrent does
+// (200 "Ok." / 200 "Fails." / 403 when locked out), checked against the
+// sneakytorrents login, so apps that talk to qBittorrent keep working.
+func (a *App) qbtLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !a.sameOrigin(r) {
+		http.Error(w, "cross-origin request refused", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
+	if a.sessionValid(r) {
+		io.WriteString(w, "Ok.")
+		return
+	}
+	ip := clientIP(r)
+	if a.logins.blocked(ip) {
+		http.Error(w, "Your IP address has been banned after too many failed authentication attempts.", http.StatusForbidden)
+		return
+	}
+	s := a.store.Get()
+	ok := s.HasAccount() && checkPassword(s.PasswordHash, r.FormValue("password"))
+	if !ok || r.FormValue("username") != s.Username {
+		a.logins.fail(ip)
+		a.log.Printf("sneaky", "failed qBittorrent API login from %s", ip)
+		io.WriteString(w, "Fails.")
+		return
+	}
+	a.logins.success(ip)
+	exp := time.Now().Add(sessionTTL)
+	token := sessionToken(s.SessionSecret, exp)
+	for _, name := range []string{sessionCookie, qbtCookie} {
+		http.SetCookie(w, &http.Cookie{Name: name, Value: token, Path: "/", Expires: exp, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	}
+	io.WriteString(w, "Ok.")
 }
 
 // loginLimiter locks an IP out for a while after repeated wrong passwords.

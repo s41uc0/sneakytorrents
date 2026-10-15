@@ -619,6 +619,10 @@ func (a *App) qbtProxy() http.Handler {
 		},
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/auth/login" {
+			a.qbtLogin(w, r)
+			return
+		}
 		s := a.store.Get()
 		allowed := s.Onboarded && (a.isIngress(r) || (s.HasAccount() && a.sessionValid(r)))
 		if !allowed {

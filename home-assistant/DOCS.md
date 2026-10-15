@@ -37,6 +37,15 @@ To reach the web UI directly, for example from a phone app:
 
 Until a login exists, the direct port shows nothing but a note to create one.
 
+## Other apps
+
+Apps that talk to qBittorrent connect with the direct access login, as they would to qBittorrent itself.
+This includes Sonarr, Radarr, mobile apps, and Home Assistant's own qBittorrent integration.
+
+- **Home Assistant's qBittorrent integration** and other apps running in Home Assistant can use the app's internal address, `http://<hostname>:8080`, with no host port needed.
+  The hostname is shown on the app's **Info** tab.
+- **Apps elsewhere on your network** need the host port set (see above), and use `http://<home-assistant-ip>:<port>`.
+
 ## Notes
 
 - **Mullvad has no port forwarding**, so peers can't connect to you. Downloading works, but poorly seeded torrents can be slow.
